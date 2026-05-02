@@ -28,7 +28,7 @@ python -m compileall app.py student_analysis tests
 
 ## 当前关键流程
 
-- 首页使用统一入口 `/import/files`，根据文件类型分流到 Excel 预览或图片校对。
+- 首页“导入与校对”区域分为 `Excel 表格` 和 `成绩截图` 两个可见入口，二者都提交到统一路由 `/import/files`，再根据文件类型分流到 Excel 预览或图片校对。
 - `/import/excel` 和 `/import/image` 保留为兼容路由，内部仍复用统一导入后的预览/校对逻辑。
 - Excel 模板下载路由是 `/template.xlsx`。
 - Excel 和图片导入都必须先进入确认/校对页，不能直接写入成绩数据。
