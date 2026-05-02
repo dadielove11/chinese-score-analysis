@@ -42,6 +42,9 @@ from .storage import (
 
 UPLOAD_DIR = Path("uploads")
 
+_EXCEL_SUFFIXES = frozenset({".xlsx", ".xlsm"})
+_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".bmp", ".webp"})
+
 
 def create_app() -> Flask:
     base_dir = resource_path()
@@ -106,17 +109,7 @@ def create_app() -> Flask:
             flash("请选择成绩文件。")
             return redirect(url_for("index"))
 
-        excel_files = []
-        image_files = []
-        unsupported_names = []
-        for file in files:
-            suffix = Path(file.filename or "").suffix.lower()
-            if suffix in {".xlsx", ".xlsm"}:
-                excel_files.append(file)
-            elif suffix in {".png", ".jpg", ".jpeg", ".bmp", ".webp"} or file.mimetype.startswith("image/"):
-                image_files.append(file)
-            else:
-                unsupported_names.append(file.filename or "未命名文件")
+        excel_files, image_files, unsupported_names = classify_uploaded_files(files)
 
         if unsupported_names:
             flash("暂不支持这些文件：" + "、".join(unsupported_names))
@@ -381,6 +374,24 @@ def post_route(app: Flask, rule: str):
     return app.route(rule, methods=["POST"])
 
 
+def classify_uploaded_files(files):
+    excel_files, image_files, unsupported_names = [], [], []
+    for file in files:
+        suffix = Path(file.filename or "").suffix.lower()
+        if suffix in _EXCEL_SUFFIXES:
+            excel_files.append(file)
+        elif suffix in _IMAGE_SUFFIXES or file.mimetype.startswith("image/"):
+            image_files.append(file)
+        else:
+            unsupported_names.append(file.filename or "未命名文件")
+    return excel_files, image_files, unsupported_names
+
+
+def _cleanup_paths(paths: list[Path]) -> None:
+    for path in paths:
+        path.unlink(missing_ok=True)
+
+
 def upload_filename(raw_name: str | None, default_suffix: str) -> str:
     raw_path = Path(raw_name or "")
     suffix = raw_path.suffix.lower() or default_suffix
@@ -393,21 +404,24 @@ def render_excel_preview(files, class_name: str, exam_name: str):
     preview_rows: list[dict[str, object]] = []
     diagnostics: list[dict[str, object]] = []
     source_summaries: list[dict[str, object]] = []
-    for file_index, file in enumerate(files, start=1):
+    saved_paths: list[Path] = []
+    for file in files:
         filename = upload_filename(file.filename, ".xlsx")
         path = UPLOAD_DIR / filename
         file.save(path)
+        saved_paths.append(path)
         try:
             file_records, file_diagnostics = parse_excel_with_report(path, class_name, exam_name, file.filename)
         except InvalidFileException:
+            _cleanup_paths(saved_paths)
             flash(f"{file.filename} 无法读取：请确认文件是 .xlsx/.xlsm 格式，不是旧版 .xls 或图片截图。")
             return redirect(url_for("index"))
         except Exception as exc:
+            _cleanup_paths(saved_paths)
             flash(f"{file.filename} 导入失败：{exc}")
             return redirect(url_for("index"))
         for item in file_diagnostics:
             item["source_name"] = file.filename or filename
-            item["file_index"] = file_index
         records.extend(file_records)
         source_name = file.filename or filename
         for record in file_records:

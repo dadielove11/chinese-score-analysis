@@ -29,14 +29,18 @@ python -m compileall app.py student_analysis tests
 ## 当前关键流程
 
 - 首页使用统一入口 `/import/files`，根据文件类型分流到 Excel 预览或图片校对。
+- `/import/excel` 和 `/import/image` 保留为兼容路由，内部仍复用统一导入后的预览/校对逻辑。
 - Excel 模板下载路由是 `/template.xlsx`。
 - Excel 和图片导入都必须先进入确认/校对页，不能直接写入成绩数据。
+- 删除记录和清空全部数据均有 `confirm()` 二次确认，**不要绕过**。
+- 考试顺序通过 ↑↓ 按钮调整（JS 重排 hidden input），后端接收 `order_<exam_name>` 字段。
 - 成绩、分数线和考试顺序保存在本地 `data/`。
-- 上传临时文件保存在本地 `uploads/`。
+- 上传临时文件保存在本地 `uploads/`；解析出错时 `_cleanup_paths()` 会清理已落盘文件。
 
 ## 编辑边界
 
 - 不要提交真实学生成绩、上传截图、导出 Excel、打包产物或本地运行数据。
 - `.gitignore` 应持续排除 `data/`、`uploads/`、`build/`、`dist/`、`release/`。
 - 修改用户可见流程时，同步更新 `README.md` 和 `tools/create_release_package.py` 里的发布包说明。
-- 前端界面应保持教师工作流优先：入口少、确认页清楚、危险操作折叠或隔离。
+- 前端界面保持教师工作流优先：入口少、确认页清楚、危险操作有二次确认。
+- 无成绩数据时首页显示三步新手引导（`.onboarding-panel`），改版时不要删除此逻辑。

@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="panel intake-panel">
-  <div class="intake-copy">
-    <p class="eyebrow">成绩入口</p>
-    <h2>导入与校对</h2>
+  <div class="intake-header">
+    <div>
+      <p class="eyebrow">成绩入口</p>
+      <h2>导入与校对</h2>
+    </div>
     <div class="stat-grid">
       <div class="stat-card">
         <span>记录</span>
@@ -19,27 +21,68 @@
       </div>
     </div>
   </div>
-
-  <div class="import-stack">
-    <form class="import-card primary-import" action="{{ url_for('import_files') }}" method="post" enctype="multipart/form-data">
-      <div class="import-mark">AUTO</div>
-      <div class="import-main">
-        <h3>导入成绩文件</h3>
-        <p class="import-help">支持 Excel 或成绩截图，可一次选择多个同类型文件。上传后先进入确认页，不会直接写入数据。</p>
-        <label>选择文件<input type="file" name="file" accept=".xlsx,.xlsm,image/*" multiple required></label>
-      </div>
+  <div class="import-zone">
+    <div class="import-zone-head">
+      <p class="import-help">Excel 和图片请分开导入，系统会在写入前进入确认页。</p>
       <div class="import-actions">
-        <button type="submit">开始导入</button>
         <a class="button ghost template-link" href="{{ url_for('template_xlsx') }}">下载 Excel 模板</a>
       </div>
-    </form>
-    <div class="quick-steps" aria-label="导入流程">
-      <span><strong>1</strong>选文件</span>
-      <span><strong>2</strong>核对班级和考试</span>
-      <span><strong>3</strong>查看分析</span>
+    </div>
+    <div class="import-choice-grid">
+      <form class="import-choice" action="{{ url_for('import_files') }}" method="post" enctype="multipart/form-data">
+        <div class="choice-copy">
+          <strong>Excel 表格</strong>
+          <span>适合 .xlsx / .xlsm，可一次选择多个 Excel 文件。</span>
+        </div>
+        <label>选择 Excel<input type="file" name="file" accept=".xlsx,.xlsm" multiple required></label>
+        <button type="submit">导入 Excel</button>
+      </form>
+      <form class="import-choice accent" action="{{ url_for('import_files') }}" method="post" enctype="multipart/form-data">
+        <div class="choice-copy">
+          <strong>成绩截图</strong>
+          <span>适合 png / jpg 等图片，可一次选择多张截图。</span>
+        </div>
+        <label>选择图片<input type="file" name="file" accept="image/*" multiple required></label>
+        <button type="submit">导入图片</button>
+      </form>
+    </div>
+  </div>
+  <div class="quick-steps" aria-label="导入流程">
+    <span><strong>1</strong>选文件</span>
+    <span><strong>2</strong>核对班级和考试</span>
+    <span><strong>3</strong>查看分析</span>
+  </div>
+</section>
+
+{% if records|length == 0 %}
+<section class="panel onboarding-panel">
+  <p class="eyebrow">新手入门</p>
+  <h2>还没有成绩数据，从这里开始</h2>
+  <div class="onboarding-steps">
+    <div class="onboarding-step">
+      <div class="onboarding-num">1</div>
+      <div>
+        <strong>准备好成绩文件</strong>
+        <p>Excel 表格（.xlsx）或成绩截图均可。没有固定格式？先点上方"下载 Excel 模板"参考表头。</p>
+      </div>
+    </div>
+    <div class="onboarding-step">
+      <div class="onboarding-num">2</div>
+      <div>
+        <strong>选择文件，点击"开始导入"</strong>
+        <p>上传后进入确认页，可以检查班级名和考试名是否正确，确认无误后才写入。</p>
+      </div>
+    </div>
+    <div class="onboarding-step">
+      <div class="onboarding-num">3</div>
+      <div>
+        <strong>查看分析结果</strong>
+        <p>导入完成后，页面自动显示班级总览、个人折线图和进退步矩阵。</p>
+      </div>
     </div>
   </div>
 </section>
+{% endif %}
 
 <details class="panel advanced-panel">
   <summary>设置与数据管理</summary>
@@ -58,9 +101,9 @@
     <div class="compact danger">
       <h2>数据管理</h2>
       <p>当前已导入 {{ records|length }} 条成绩记录。</p>
-      <form class="delete-form" action="{{ url_for('delete_records') }}" method="post">
+      <form class="delete-form" id="delete-form" action="{{ url_for('delete_records') }}" method="post" onsubmit="return confirmDelete()">
         <label>删除方式
-          <select name="delete_mode">
+          <select name="delete_mode" id="delete-mode" onchange="syncDeleteForm()">
             <option value="class_exam">删除某班某次考试</option>
             <option value="class_student">删除某班某个学生</option>
             <option value="class">删除整个班级</option>
@@ -68,33 +111,39 @@
             <option value="student">删除某个学生</option>
           </select>
         </label>
-        <label>班级
-          <select name="class_name">
-            <option value="">不限定</option>
-            {% for class_name in classes %}
-              <option value="{{ class_name }}" {% if class_name == selected_class %}selected{% endif %}>{{ class_name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>考试
-          <select name="exam_name">
-            <option value="">不限定</option>
-            {% for exam_name in all_exams %}
-              <option value="{{ exam_name }}">{{ exam_name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>学生
-          <select name="student_name">
-            <option value="">不限定</option>
-            {% for student in all_students %}
-              <option value="{{ student }}">{{ student }}</option>
-            {% endfor %}
-          </select>
-        </label>
+        <div id="del-wrap-class">
+          <label>班级
+            <select name="class_name" id="del-class">
+              <option value="">不限定</option>
+              {% for class_name in classes %}
+                <option value="{{ class_name }}" {% if class_name == selected_class %}selected{% endif %}>{{ class_name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div id="del-wrap-exam">
+          <label>考试
+            <select name="exam_name" id="del-exam">
+              <option value="">不限定</option>
+              {% for exam_name in all_exams %}
+                <option value="{{ exam_name }}">{{ exam_name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div id="del-wrap-student" style="display:none">
+          <label>学生
+            <select name="student_name" id="del-student">
+              <option value="">不限定</option>
+              {% for student in all_students %}
+                <option value="{{ student }}">{{ student }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
         <button type="submit">按条件删除</button>
       </form>
-      <form class="clear-all" action="{{ url_for('clear') }}" method="post">
+      <form class="clear-all" action="{{ url_for('clear') }}" method="post" onsubmit="return confirm('确定清空全部成绩数据？\n清空后无法直接撤销。')">
         <button type="submit">清空全部数据</button>
       </form>
     </div>
@@ -118,16 +167,19 @@
     <div class="order-strip">考试顺序：{{ exam_order|join(' → ') }}</div>
     <form class="order-editor" action="{{ url_for('exam_order') }}" method="post">
       <input type="hidden" name="class_name" value="{{ selected_class }}">
-      {% for exam_name in exam_order %}
-        <label class="order-item">
-          <span class="order-name">{{ exam_name }}</span>
-          <input type="hidden" name="exam_name" value="{{ exam_name }}">
-          <span class="order-control">
-            <span>顺序</span>
-            <input type="number" name="order_{{ exam_name }}" value="{{ loop.index }}" min="1">
-          </span>
-        </label>
-      {% endfor %}
+      <div class="order-list">
+        {% for exam_name in exam_order %}
+          <div class="order-item">
+            <input type="hidden" name="exam_name" value="{{ exam_name }}">
+            <input type="hidden" name="order_{{ exam_name }}" class="order-val" value="{{ loop.index }}">
+            <span class="order-name">{{ exam_name }}</span>
+            <span class="order-btns">
+              <button type="button" class="btn-icon order-up" title="上移">↑</button>
+              <button type="button" class="btn-icon order-down" title="下移">↓</button>
+            </span>
+          </div>
+        {% endfor %}
+      </div>
       <button type="submit">保存考试顺序</button>
     </form>
   {% endif %}
@@ -191,7 +243,7 @@
     </div>
     <div class="chart-actions">
       <a class="button ghost" href="{{ url_for('export_student_chart_png', class_name=selected_class, student=selected_student) }}">保存趋势大图 PNG</a>
-      <a class="button" href="{{ url_for('export_student_charts', class_name=selected_class) }}">批量保存本班图</a>
+      <a class="button" href="{{ url_for('export_student_charts', class_name=selected_class) }}">下载全班趋势图</a>
     </div>
   {% endif %}
   <div class="charts combined-charts">
@@ -230,7 +282,7 @@
               <th class="col-exam">{{ exam_name }}</th>
             {% endfor %}
             <th class="col-spark">趋势</th>
-            <th class="col-total">总Δ分</th>
+            <th class="col-total">总变化</th>
             <th class="col-total">位次进步</th>
           </tr>
         </thead>
@@ -307,6 +359,56 @@
         form.submit();
       }
     });
+  });
+
+  /* ── 删除表单：根据模式动态显隐班级/考试/学生下拉框 ── */
+  function syncDeleteForm() {
+    const mode = document.getElementById("delete-mode").value;
+    const showClass = ["class_exam", "class_student", "class"].includes(mode);
+    const showExam  = ["class_exam", "exam"].includes(mode);
+    const showStudent = ["class_student", "student"].includes(mode);
+    document.getElementById("del-wrap-class").style.display   = showClass   ? "" : "none";
+    document.getElementById("del-wrap-exam").style.display    = showExam    ? "" : "none";
+    document.getElementById("del-wrap-student").style.display = showStudent ? "" : "none";
+  }
+
+  function confirmDelete() {
+    const mode    = document.getElementById("delete-mode").value;
+    const cls     = (document.getElementById("del-class")   || {}).value || "";
+    const exam    = (document.getElementById("del-exam")    || {}).value || "";
+    const student = (document.getElementById("del-student") || {}).value || "";
+    const desc = {
+      class_exam:    `${cls || "所有班级"} 的「${exam || "全部考试"}」成绩`,
+      class:         `${cls} 的全部成绩`,
+      exam:          `所有班级中「${exam}」的成绩`,
+      class_student: `${cls} 学生「${student}」的全部成绩`,
+      student:       `学生「${student}」的全部成绩`,
+    }[mode] || "所选成绩";
+    return confirm(`确定删除 ${desc}？`);
+  }
+
+  /* ── 考试顺序：上下箭头排序 ── */
+  function refreshOrderVals(list) {
+    list.querySelectorAll(".order-item").forEach((item, i) => {
+      item.querySelector(".order-val").value = i + 1;
+      item.querySelector(".order-up").disabled  = i === 0;
+      item.querySelector(".order-down").disabled = i === list.querySelectorAll(".order-item").length - 1;
+    });
+  }
+
+  document.querySelectorAll(".order-list").forEach((list) => {
+    list.addEventListener("click", (event) => {
+      const btn  = event.target.closest(".order-up, .order-down");
+      if (!btn) return;
+      const item = btn.closest(".order-item");
+      if (btn.classList.contains("order-up") && item.previousElementSibling) {
+        list.insertBefore(item, item.previousElementSibling);
+      } else if (btn.classList.contains("order-down") && item.nextElementSibling) {
+        list.insertBefore(item.nextElementSibling, item);
+      }
+      refreshOrderVals(list);
+    });
+    refreshOrderVals(list);
   });
 </script>
 {% endblock %}
