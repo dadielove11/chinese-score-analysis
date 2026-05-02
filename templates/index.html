@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel intake-panel">
+  <div class="intake-copy">
+    <p class="eyebrow">成绩入口</p>
+    <h2>导入与校对</h2>
+    <div class="stat-grid">
+      <div class="stat-card">
+        <span>记录</span>
+        <strong>{{ records|length }}</strong>
+      </div>
+      <div class="stat-card">
+        <span>班级</span>
+        <strong>{{ classes|length }}</strong>
+      </div>
+      <div class="stat-card">
+        <span>考试</span>
+        <strong>{{ all_exams|length }}</strong>
+      </div>
+    </div>
+  </div>
+
+  <div class="import-stack">
+    <form class="import-card" action="{{ url_for('import_excel') }}" method="post" enctype="multipart/form-data">
+      <div class="import-mark">XLSX</div>
+      <div class="import-main">
+        <h3>Excel 导入</h3>
+        <label>选择一个或多个文件<input type="file" name="file" accept=".xlsx,.xlsm" multiple required></label>
+      </div>
+      <button type="submit">导入 Excel</button>
+    </form>
+
+    <form class="import-card accent" action="{{ url_for('import_image') }}" method="post" enctype="multipart/form-data">
+      <div class="import-mark">IMG</div>
+      <div class="import-main">
+        <h3>图片导入</h3>
+        <label>选择一张或多张图片<input type="file" name="file" accept="image/*" multiple required></label>
+      </div>
+      <button type="submit">识别校对</button>
+    </form>
+  </div>
+</section>
+
+<section class="grid two control-grid">
+  <form class="panel compact" action="{{ url_for('settings') }}" method="post">
+    <h2>分数线设置</h2>
+    <div class="line-inputs">
+      <label>优秀<input name="excellent" type="number" step="0.5" value="{{ lines[0].score }}"></label>
+      <label>良好<input name="good" type="number" step="0.5" value="{{ lines[1].score }}"></label>
+      <label>及格<input name="pass" type="number" step="0.5" value="{{ lines[2].score }}"></label>
+      <label>低分<input name="low" type="number" step="0.5" value="{{ lines[3].score }}"></label>
+    </div>
+    <button type="submit">保存规则</button>
+  </form>
+
+  <div class="panel compact danger">
+    <h2>数据管理</h2>
+    <p>当前已导入 {{ records|length }} 条成绩记录。</p>
+    <form class="delete-form" action="{{ url_for('delete_records') }}" method="post">
+      <label>删除方式
+        <select name="delete_mode">
+          <option value="class_exam">删除某班某次考试</option>
+          <option value="class_student">删除某班某个学生</option>
+          <option value="class">删除整个班级</option>
+          <option value="exam">删除某次考试</option>
+          <option value="student">删除某个学生</option>
+        </select>
+      </label>
+      <label>班级
+        <select name="class_name">
+          <option value="">不限定</option>
+          {% for class_name in classes %}
+            <option value="{{ class_name }}" {% if class_name == selected_class %}selected{% endif %}>{{ class_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>考试
+        <select name="exam_name">
+          <option value="">不限定</option>
+          {% for exam_name in all_exams %}
+            <option value="{{ exam_name }}">{{ exam_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>学生
+        <select name="student_name">
+          <option value="">不限定</option>
+          {% for student in all_students %}
+            <option value="{{ student }}">{{ student }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">按条件删除</button>
+    </form>
+    <form class="clear-all" action="{{ url_for('clear') }}" method="post">
+      <button type="submit">清空全部数据</button>
+    </form>
+  </div>
+</section>
+
+<section class="panel" id="class-summary">
+  <div class="section-head">
+    <h2>班级总览</h2>
+    <form method="get" class="filters" action="{{ url_for('index') }}#class-summary">
+      <label>查看班级
+        <select name="class_name" onchange="this.form.submit()">
+          {% for class_name in classes %}
+            <option value="{{ class_name }}" {% if class_name == selected_class %}selected{% endif %}>{{ class_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+  </div>
+  {% if exam_order %}
+    <div class="order-strip">考试顺序：{{ exam_order|join(' → ') }}</div>
+    <form class="order-editor" action="{{ url_for('exam_order') }}" method="post">
+      <input type="hidden" name="class_name" value="{{ selected_class }}">
+      {% for exam_name in exam_order %}
+        <label class="order-item">
+          <span class="order-name">{{ exam_name }}</span>
+          <input type="hidden" name="exam_name" value="{{ exam_name }}">
+          <span class="order-control">
+            <span>顺序</span>
+            <input type="number" name="order_{{ exam_name }}" value="{{ loop.index }}" min="1">
+          </span>
+        </label>
+      {% endfor %}
+      <button type="submit">保存考试顺序</button>
+    </form>
+  {% endif %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>班级</th><th>考试</th><th>人数</th><th>均分</th><th>中位数</th><th>最高</th><th>最低</th>
+          {% for line in lines %}<th>{{ line.label }}率</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in summaries %}
+        <tr>
+          <td>{{ row.class_name }}</td><td>{{ row.exam_name }}</td><td>{{ row.count }}</td><td>{{ row.avg }}</td>
+          <td>{{ row.median }}</td><td>{{ row.max }}</td><td>{{ row.min }}</td>
+          {% for line in lines %}<td>{{ row[line.label ~ '率'] }}%</td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel" id="personal-trend">
+  <div class="section-head">
+    <h2>个人趋势</h2>
+    <form method="get" class="filters student-filter" action="{{ url_for('index') }}#personal-trend">
+      <input type="hidden" name="class_name" value="{{ selected_class }}">
+      <input type="hidden" name="progress_sort" value="{{ progress_sort }}">
+      <label>搜索学生
+        <input class="student-search" type="search" placeholder="输入姓名快速定位" autocomplete="off">
+      </label>
+      <label>选择学生
+        <select name="student" class="student-select" onchange="this.form.submit()">
+          {% for student in students %}
+            <option value="{{ student }}" {% if student == selected_student %}selected{% endif %}>{{ student }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+  </div>
+  {% if selected_student %}
+    <div class="coverage-strip">
+      <div>
+        <span class="coverage-label">已录入</span>
+        {% for exam_name in student_coverage.present %}
+          <span class="pill present">{{ exam_name }}</span>
+        {% else %}
+          <span class="muted-text">暂无</span>
+        {% endfor %}
+      </div>
+      {% if student_coverage.missing %}
+        <div>
+          <span class="coverage-label">缺少</span>
+          {% for exam_name in student_coverage.missing %}
+            <span class="pill missing">{{ exam_name }}</span>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+    <div class="chart-actions">
+      <a class="button ghost" href="{{ url_for('export_student_chart_png', class_name=selected_class, student=selected_student) }}">保存趋势大图 PNG</a>
+      <a class="button" href="{{ url_for('export_student_charts', class_name=selected_class) }}">批量保存本班图</a>
+    </div>
+  {% endif %}
+  <div class="charts combined-charts">
+    {{ combined_chart|safe }}
+  </div>
+</section>
+
+<section class="panel" id="progress-overview">
+  <div class="section-head">
+    <h2>进退步概览</h2>
+    <form method="get" class="filters progress-filter" action="{{ url_for('index') }}#progress-overview">
+      <input type="hidden" name="class_name" value="{{ selected_class }}">
+      <input type="hidden" name="student" value="{{ selected_student }}">
+      <label>排序
+        <select name="progress_sort" onchange="this.form.submit()">
+          <option value="score_delta_desc" {% if progress_sort == 'score_delta_desc' %}selected{% endif %}>总进步分从高到低</option>
+          <option value="score_delta_asc" {% if progress_sort == 'score_delta_asc' %}selected{% endif %}>总退步分从高到低</option>
+          <option value="score_desc" {% if progress_sort == 'score_desc' %}selected{% endif %}>最近分数从高到低</option>
+          <option value="score_asc" {% if progress_sort == 'score_asc' %}selected{% endif %}>最近分数从低到高</option>
+          <option value="rank_delta_desc" {% if progress_sort == 'rank_delta_desc' %}selected{% endif %}>位次进步从高到低</option>
+          <option value="rank_asc" {% if progress_sort == 'rank_asc' %}selected{% endif %}>最近位次从前到后</option>
+          <option value="name" {% if progress_sort == 'name' %}selected{% endif %}>姓名顺序</option>
+        </select>
+      </label>
+    </form>
+  </div>
+  {% if progress_data.rows %}
+    <p class="muted-hint">每格显示：当次分数 + 与上一次考试的变化（▲ 进步 / ▼ 退步）。最右两列汇总首次与最近考试的总变化。</p>
+    <div class="table-wrap matrix-wrap">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="col-class">班级</th>
+            <th class="col-name">姓名</th>
+            {% for exam_name in progress_data.exams %}
+              <th class="col-exam">{{ exam_name }}</th>
+            {% endfor %}
+            <th class="col-spark">趋势</th>
+            <th class="col-total">总Δ分</th>
+            <th class="col-total">位次进步</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in progress_data.rows %}
+          <tr>
+            <td class="col-class">{{ row.class_name }}</td>
+            <td class="col-name">{{ row.student_name }}</td>
+            {% for cell in row.cells %}
+              <td class="matrix-cell">
+                {% if cell.score is not none %}
+                  <div class="cell-score">{{ cell.score }}</div>
+                  {% if cell.score_delta_prev is not none %}
+                    {% if cell.score_delta_prev > 0 %}
+                      <div class="cell-delta up">▲ +{{ '%g'|format(cell.score_delta_prev) }}</div>
+                    {% elif cell.score_delta_prev < 0 %}
+                      <div class="cell-delta down">▼ {{ '%g'|format(cell.score_delta_prev) }}</div>
+                    {% else %}
+                      <div class="cell-delta flat">— 0</div>
+                    {% endif %}
+                  {% endif %}
+                {% else %}
+                  <div class="cell-empty">—</div>
+                {% endif %}
+              </td>
+            {% endfor %}
+            <td class="matrix-spark">{{ row.sparkline|safe }}</td>
+            <td class="matrix-total {% if row.score_delta_total is not none and row.score_delta_total > 0 %}up{% elif row.score_delta_total is not none and row.score_delta_total < 0 %}down{% endif %}">
+              {% if row.score_delta_total is not none %}{{ '%+g'|format(row.score_delta_total) }}{% else %}—{% endif %}
+            </td>
+            <td class="matrix-total {% if row.rank_delta_total is not none and row.rank_delta_total > 0 %}up{% elif row.rank_delta_total is not none and row.rank_delta_total < 0 %}down{% endif %}">
+              {% if row.rank_delta_total is not none %}{{ '%+d'|format(row.rank_delta_total) }}{% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">至少需要 2 次以上考试才能展示进退步矩阵。</p>
+  {% endif %}
+</section>
+<script>
+  document.querySelectorAll(".student-filter").forEach((form) => {
+    const search = form.querySelector(".student-search");
+    const select = form.querySelector(".student-select");
+    if (!search || !select) return;
+    const options = Array.from(select.options).map((option) => ({
+      value: option.value,
+      text: option.textContent || option.value,
+    }));
+
+    const render = (keyword) => {
+      const query = keyword.trim();
+      const current = select.value;
+      select.innerHTML = "";
+      const matched = options.filter((item) => !query || item.text.includes(query));
+      for (const item of matched) {
+        const option = document.createElement("option");
+        option.value = item.value;
+        option.textContent = item.text;
+        option.selected = item.value === current;
+        select.appendChild(option);
+      }
+      if (!matched.some((item) => item.value === current) && select.options.length) {
+        select.options[0].selected = true;
+      }
+    };
+
+    search.addEventListener("input", () => render(search.value));
+    search.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && select.value) {
+        event.preventDefault();
+        form.submit();
+      }
+    });
+  });
+</script>
+{% endblock %}

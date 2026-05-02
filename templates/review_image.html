@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<form class="panel review" action="{{ url_for('import_review') }}" method="post">
+  <h2>图片识别校对</h2>
+  <div class="notice">
+    已上传 {{ image_items|length }} 张图片。每张图片单独确认班级、考试名称和识别内容，确认后会一起入库。
+  </div>
+
+  <div class="image-review-list">
+    {% for item in image_items %}
+      <section class="image-review-card">
+        <div class="image-review-head">
+          <h3>{{ loop.index }}. {{ item.source_name }}</h3>
+          {% if item.error %}<span class="review-warning">{{ item.error }}</span>{% endif %}
+        </div>
+        <input type="hidden" name="source_name" value="{{ item.source_name }}">
+        <div class="review-meta">
+          <label>班级<input name="class_name" value="{{ item.class_name }}" placeholder="例如：7班；留空则归为未分班"></label>
+          <label>考试名称<input name="exam_name" value="{{ item.exam_name }}" placeholder="例如：七下期中；表头已有考试名时可留空"></label>
+        </div>
+        <p>请校对为每行一个学生，格式为：姓名 分数 位次。位次可以留空，系统会按分数自动计算。</p>
+        <textarea name="table_text" spellcheck="false" placeholder="陈丹妮 69 10&#10;顾瑞希 71.5 7">{{ item.ocr_text }}</textarea>
+      </section>
+    {% endfor %}
+  </div>
+
+  <div class="actions">
+    <a class="button ghost" href="{{ url_for('index') }}">返回</a>
+    <button type="submit">确认导入全部图片</button>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+<form class="panel review" action="{{ url_for('confirm_excel') }}" method="post">
+  <h2>Excel 导入确认</h2>
+  <input type="hidden" name="token" value="{{ token }}">
+  <div class="notice">
+    已从 {{ source_summaries|length }} 个 Excel 文件识别到 {{ record_count }} 条成绩。请按文件、工作表核对清楚，再确认班级和考试名称。
+  </div>
+
+  <h3>文件概览</h3>
+  <div class="source-list">
+    {% for item in source_summaries %}
+      <div class="source-card">
+        <strong>{{ loop.index }}. {{ item.source_name }}</strong>
+        <span>{{ item.sheet_count }} 个工作表 / {{ item.record_count }} 条记录</span>
+        <span>班级：{{ item.class_names|join('、') if item.class_names else '未读取到' }}</span>
+        <span>考试：{{ item.exam_names|join('、') if item.exam_names else '未读取到' }}</span>
+      </div>
+    {% endfor %}
+  </div>
+
+  <h3>工作表识别明细</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>文件</th><th>工作表</th><th>班级判断</th><th>来源</th><th>考试</th><th>记录数</th><th>提示</th></tr></thead>
+      <tbody>
+      {% for item in diagnostics %}
+        <tr>
+          <td>{{ item.source_name }}</td>
+          <td>{{ item.sheet_title }}</td>
+          <td>{{ item.class_name or '未读取到' }}</td>
+          <td>{{ item.class_source }}</td>
+          <td>{{ item.exam_names|join('、') if item.exam_names else '-' }}</td>
+          <td>{{ item.record_count }}</td>
+          <td>{{ item.message or '-' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h3>导入批次确认</h3>
+  <div class="table-wrap">
+    <table class="batch-confirm">
+      <thead>
+        <tr>
+          <th>文件</th><th>原班级</th><th>原考试</th><th>记录数</th><th>样例学生</th><th>确认班级</th><th>确认考试</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for item in batch_mappings %}
+        <tr class="{% if item.needs_attention %}needs-attention-row{% endif %}">
+          <td>{{ item.source_name }}</td>
+          <td>{{ item.original_class }}</td>
+          <td>{{ item.original_exam }}</td>
+          <td>{{ item.record_count }}</td>
+          <td>{{ item.sample_names|join('、') }}</td>
+          <td>
+            <input type="hidden" name="class_key" value="{{ item.class_key }}">
+            <input name="class_value" value="{{ item.suggested_class }}" placeholder="如 7班">
+          </td>
+          <td>
+            <input type="hidden" name="exam_key" value="{{ item.exam_key }}">
+            <input name="exam_value" value="{{ item.suggested_exam }}" placeholder="如 七下期中">
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h3>样例预览（前 12 条）</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>文件</th><th>班级</th><th>姓名</th><th>考试</th><th>语文</th><th>位次</th></tr></thead>
+      <tbody>
+      {% for record in preview_records %}
+        <tr>
+          <td>{{ record.source_name }}</td>
+          <td>{{ record.class_name }}</td>
+          <td>{{ record.student_name }}</td>
+          <td>{{ record.exam_name }}</td>
+          <td>{{ record.score }}</td>
+          <td>{{ record.rank or '-' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="actions">
+    <a class="button ghost" href="{{ url_for('index') }}">取消</a>
+    <button type="submit">确认入库</button>
+  </div>
+</form>
+{% endblock %}

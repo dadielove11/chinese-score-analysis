@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# Local runtime data
+data/
+uploads/
+
+# Build and release outputs
+build/
+dist/
+release/
+*.spec.bak
+
+# Local generated files
+*.log
+*.tmp
+*.bak
+
+# Editor and OS files
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
