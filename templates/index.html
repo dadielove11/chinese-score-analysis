@@ -21,82 +21,85 @@
   </div>
 
   <div class="import-stack">
-    <form class="import-card" action="{{ url_for('import_excel') }}" method="post" enctype="multipart/form-data">
-      <div class="import-mark">XLSX</div>
+    <form class="import-card primary-import" action="{{ url_for('import_files') }}" method="post" enctype="multipart/form-data">
+      <div class="import-mark">AUTO</div>
       <div class="import-main">
-        <h3>Excel 导入</h3>
-        <label>选择一个或多个文件<input type="file" name="file" accept=".xlsx,.xlsm" multiple required></label>
+        <h3>导入成绩文件</h3>
+        <p class="import-help">支持 Excel 或成绩截图，可一次选择多个同类型文件。上传后先进入确认页，不会直接写入数据。</p>
+        <label>选择文件<input type="file" name="file" accept=".xlsx,.xlsm,image/*" multiple required></label>
       </div>
-      <button type="submit">导入 Excel</button>
-    </form>
-
-    <form class="import-card accent" action="{{ url_for('import_image') }}" method="post" enctype="multipart/form-data">
-      <div class="import-mark">IMG</div>
-      <div class="import-main">
-        <h3>图片导入</h3>
-        <label>选择一张或多张图片<input type="file" name="file" accept="image/*" multiple required></label>
+      <div class="import-actions">
+        <button type="submit">开始导入</button>
+        <a class="button ghost template-link" href="{{ url_for('template_xlsx') }}">下载 Excel 模板</a>
       </div>
-      <button type="submit">识别校对</button>
     </form>
-  </div>
-</section>
-
-<section class="grid two control-grid">
-  <form class="panel compact" action="{{ url_for('settings') }}" method="post">
-    <h2>分数线设置</h2>
-    <div class="line-inputs">
-      <label>优秀<input name="excellent" type="number" step="0.5" value="{{ lines[0].score }}"></label>
-      <label>良好<input name="good" type="number" step="0.5" value="{{ lines[1].score }}"></label>
-      <label>及格<input name="pass" type="number" step="0.5" value="{{ lines[2].score }}"></label>
-      <label>低分<input name="low" type="number" step="0.5" value="{{ lines[3].score }}"></label>
+    <div class="quick-steps" aria-label="导入流程">
+      <span><strong>1</strong>选文件</span>
+      <span><strong>2</strong>核对班级和考试</span>
+      <span><strong>3</strong>查看分析</span>
     </div>
-    <button type="submit">保存规则</button>
-  </form>
-
-  <div class="panel compact danger">
-    <h2>数据管理</h2>
-    <p>当前已导入 {{ records|length }} 条成绩记录。</p>
-    <form class="delete-form" action="{{ url_for('delete_records') }}" method="post">
-      <label>删除方式
-        <select name="delete_mode">
-          <option value="class_exam">删除某班某次考试</option>
-          <option value="class_student">删除某班某个学生</option>
-          <option value="class">删除整个班级</option>
-          <option value="exam">删除某次考试</option>
-          <option value="student">删除某个学生</option>
-        </select>
-      </label>
-      <label>班级
-        <select name="class_name">
-          <option value="">不限定</option>
-          {% for class_name in classes %}
-            <option value="{{ class_name }}" {% if class_name == selected_class %}selected{% endif %}>{{ class_name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>考试
-        <select name="exam_name">
-          <option value="">不限定</option>
-          {% for exam_name in all_exams %}
-            <option value="{{ exam_name }}">{{ exam_name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>学生
-        <select name="student_name">
-          <option value="">不限定</option>
-          {% for student in all_students %}
-            <option value="{{ student }}">{{ student }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <button type="submit">按条件删除</button>
-    </form>
-    <form class="clear-all" action="{{ url_for('clear') }}" method="post">
-      <button type="submit">清空全部数据</button>
-    </form>
   </div>
 </section>
+
+<details class="panel advanced-panel">
+  <summary>设置与数据管理</summary>
+  <div class="grid two advanced-grid">
+    <form class="compact" action="{{ url_for('settings') }}" method="post">
+      <h2>分数线设置</h2>
+      <div class="line-inputs">
+        <label>优秀<input name="excellent" type="number" step="0.5" value="{{ lines[0].score }}"></label>
+        <label>良好<input name="good" type="number" step="0.5" value="{{ lines[1].score }}"></label>
+        <label>及格<input name="pass" type="number" step="0.5" value="{{ lines[2].score }}"></label>
+        <label>低分<input name="low" type="number" step="0.5" value="{{ lines[3].score }}"></label>
+      </div>
+      <button type="submit">保存规则</button>
+    </form>
+
+    <div class="compact danger">
+      <h2>数据管理</h2>
+      <p>当前已导入 {{ records|length }} 条成绩记录。</p>
+      <form class="delete-form" action="{{ url_for('delete_records') }}" method="post">
+        <label>删除方式
+          <select name="delete_mode">
+            <option value="class_exam">删除某班某次考试</option>
+            <option value="class_student">删除某班某个学生</option>
+            <option value="class">删除整个班级</option>
+            <option value="exam">删除某次考试</option>
+            <option value="student">删除某个学生</option>
+          </select>
+        </label>
+        <label>班级
+          <select name="class_name">
+            <option value="">不限定</option>
+            {% for class_name in classes %}
+              <option value="{{ class_name }}" {% if class_name == selected_class %}selected{% endif %}>{{ class_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>考试
+          <select name="exam_name">
+            <option value="">不限定</option>
+            {% for exam_name in all_exams %}
+              <option value="{{ exam_name }}">{{ exam_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>学生
+          <select name="student_name">
+            <option value="">不限定</option>
+            {% for student in all_students %}
+              <option value="{{ student }}">{{ student }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit">按条件删除</button>
+      </form>
+      <form class="clear-all" action="{{ url_for('clear') }}" method="post">
+        <button type="submit">清空全部数据</button>
+      </form>
+    </div>
+  </div>
+</details>
 
 <section class="panel" id="class-summary">
   <div class="section-head">

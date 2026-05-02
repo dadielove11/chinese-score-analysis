@@ -99,6 +99,35 @@ def create_app() -> Flask:
         flash("分数线已保存。")
         return redirect(url_for("index"))
 
+    @post_route(app, "/import/files")
+    def import_files():
+        files = [file for file in request.files.getlist("file") if file and file.filename]
+        if not files:
+            flash("请选择成绩文件。")
+            return redirect(url_for("index"))
+
+        excel_files = []
+        image_files = []
+        unsupported_names = []
+        for file in files:
+            suffix = Path(file.filename or "").suffix.lower()
+            if suffix in {".xlsx", ".xlsm"}:
+                excel_files.append(file)
+            elif suffix in {".png", ".jpg", ".jpeg", ".bmp", ".webp"} or file.mimetype.startswith("image/"):
+                image_files.append(file)
+            else:
+                unsupported_names.append(file.filename or "未命名文件")
+
+        if unsupported_names:
+            flash("暂不支持这些文件：" + "、".join(unsupported_names))
+            return redirect(url_for("index"))
+        if excel_files and image_files:
+            flash("请一次只选择 Excel 文件，或只选择图片文件；两类文件分开导入更容易校对。")
+            return redirect(url_for("index"))
+        if excel_files:
+            return render_excel_preview(excel_files, "", "")
+        return render_image_review(image_files)
+
     @post_route(app, "/import/excel")
     def import_excel():
         files = [file for file in request.files.getlist("file") if file and file.filename]
@@ -107,60 +136,7 @@ def create_app() -> Flask:
         if not files:
             flash("请选择 Excel 文件。")
             return redirect(url_for("index"))
-        records: list[ScoreRecord] = []
-        preview_rows: list[dict[str, object]] = []
-        diagnostics: list[dict[str, object]] = []
-        source_summaries: list[dict[str, object]] = []
-        for file_index, file in enumerate(files, start=1):
-            filename = upload_filename(file.filename, ".xlsx")
-            path = UPLOAD_DIR / filename
-            file.save(path)
-            try:
-                file_records, file_diagnostics = parse_excel_with_report(path, class_name, exam_name, file.filename)
-            except InvalidFileException:
-                flash(f"{file.filename} 无法读取：请确认文件是 .xlsx/.xlsm 格式，不是旧版 .xls 或图片截图。")
-                return redirect(url_for("index"))
-            except Exception as exc:
-                flash(f"{file.filename} 导入失败：{exc}")
-                return redirect(url_for("index"))
-            for item in file_diagnostics:
-                item["source_name"] = file.filename or filename
-                item["file_index"] = file_index
-            records.extend(file_records)
-            source_name = file.filename or filename
-            for record in file_records:
-                preview_rows.append(record_to_dict(record, source_name))
-            diagnostics.extend(file_diagnostics)
-            source_summaries.append(
-                {
-                    "source_name": source_name,
-                    "record_count": len(file_records),
-                    "sheet_count": len(file_diagnostics),
-                    "class_names": sorted({record.class_name for record in file_records}),
-                    "exam_names": sorted({record.exam_name for record in file_records}),
-                }
-            )
-        if not records:
-            flash("Excel 中没有识别到成绩。请确认表头包含“姓名”，成绩列包含“语文/分数/成绩”，或使用“姓名 + 考试名称”格式。")
-            return redirect(url_for("index"))
-        token = uuid4().hex
-        payload = {
-            "records": preview_rows,
-            "diagnostics": diagnostics,
-            "source_name": "、".join(item["source_name"] for item in source_summaries),
-            "source_summaries": source_summaries,
-        }
-        save_preview(token, payload)
-        return render_template(
-            "review_excel.html",
-            token=token,
-            source_name=payload["source_name"],
-            source_summaries=source_summaries,
-            diagnostics=diagnostics,
-            batch_mappings=batch_mapping_items(preview_rows),
-            preview_records=preview_rows[:12],
-            record_count=len(records),
-        )
+        return render_excel_preview(files, class_name, exam_name)
 
     @post_route(app, "/import/excel/confirm")
     def confirm_excel():
@@ -192,25 +168,7 @@ def create_app() -> Flask:
         if not files:
             flash("请选择图片文件。")
             return redirect(url_for("index"))
-        image_items: list[dict[str, object]] = []
-        for file in files:
-            filename = upload_filename(file.filename, ".png")
-            path = UPLOAD_DIR / filename
-            file.save(path)
-            text, error = image_to_text(path)
-            image_items.append(
-                {
-                    "source_name": file.filename or filename,
-                    "class_name": "",
-                    "exam_name": "",
-                    "ocr_text": text,
-                    "error": error,
-                }
-            )
-        return render_template(
-            "review_image.html",
-            image_items=image_items,
-        )
+        return render_image_review(files)
 
     @post_route(app, "/import/review")
     def import_review():
@@ -278,6 +236,30 @@ def create_app() -> Flask:
 
         workbook.save(export_path)
         return send_file(export_path.resolve(), as_attachment=True, download_name="语文成绩分析.xlsx")
+
+    @app.get("/template.xlsx")
+    def template_xlsx():
+        workbook = Workbook()
+        single = workbook.active
+        single.title = "单次考试模板"
+        single.append(["班级", "姓名", "考试", "语文", "位次"])
+        single.append(["7班", "张三", "七上期中", 88, 1])
+        single.append(["7班", "李四", "七上期中", 76, 12])
+
+        multi = workbook.create_sheet("多次考试模板")
+        multi.append(["班级", "姓名", "七上期中", "七上期末", "七下期中"])
+        multi.append(["7班", "张三", 72.5, 81, 78])
+        multi.append(["7班", "李四", 66, 70, ""])
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+        return send_file(
+            buffer,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name="语文成绩导入模板.xlsx",
+        )
 
     @app.get("/export/student-chart.svg")
     def export_student_chart():
@@ -404,6 +386,85 @@ def upload_filename(raw_name: str | None, default_suffix: str) -> str:
     suffix = raw_path.suffix.lower() or default_suffix
     stem = secure_filename(raw_path.stem) or uuid4().hex
     return f"{stem}{suffix}"
+
+
+def render_excel_preview(files, class_name: str, exam_name: str):
+    records: list[ScoreRecord] = []
+    preview_rows: list[dict[str, object]] = []
+    diagnostics: list[dict[str, object]] = []
+    source_summaries: list[dict[str, object]] = []
+    for file_index, file in enumerate(files, start=1):
+        filename = upload_filename(file.filename, ".xlsx")
+        path = UPLOAD_DIR / filename
+        file.save(path)
+        try:
+            file_records, file_diagnostics = parse_excel_with_report(path, class_name, exam_name, file.filename)
+        except InvalidFileException:
+            flash(f"{file.filename} 无法读取：请确认文件是 .xlsx/.xlsm 格式，不是旧版 .xls 或图片截图。")
+            return redirect(url_for("index"))
+        except Exception as exc:
+            flash(f"{file.filename} 导入失败：{exc}")
+            return redirect(url_for("index"))
+        for item in file_diagnostics:
+            item["source_name"] = file.filename or filename
+            item["file_index"] = file_index
+        records.extend(file_records)
+        source_name = file.filename or filename
+        for record in file_records:
+            preview_rows.append(record_to_dict(record, source_name))
+        diagnostics.extend(file_diagnostics)
+        source_summaries.append(
+            {
+                "source_name": source_name,
+                "record_count": len(file_records),
+                "sheet_count": len(file_diagnostics),
+                "class_names": sorted({record.class_name for record in file_records}),
+                "exam_names": sorted({record.exam_name for record in file_records}),
+            }
+        )
+    if not records:
+        flash("Excel 中没有识别到成绩。请确认表头包含“姓名”，成绩列包含“语文/分数/成绩”，或使用“姓名 + 考试名称”格式。")
+        return redirect(url_for("index"))
+    token = uuid4().hex
+    payload = {
+        "records": preview_rows,
+        "diagnostics": diagnostics,
+        "source_name": "、".join(item["source_name"] for item in source_summaries),
+        "source_summaries": source_summaries,
+    }
+    save_preview(token, payload)
+    return render_template(
+        "review_excel.html",
+        token=token,
+        source_name=payload["source_name"],
+        source_summaries=source_summaries,
+        diagnostics=diagnostics,
+        batch_mappings=batch_mapping_items(preview_rows),
+        preview_records=preview_rows[:12],
+        record_count=len(records),
+    )
+
+
+def render_image_review(files):
+    image_items: list[dict[str, object]] = []
+    for file in files:
+        filename = upload_filename(file.filename, ".png")
+        path = UPLOAD_DIR / filename
+        file.save(path)
+        text, error = image_to_text(path)
+        image_items.append(
+            {
+                "source_name": file.filename or filename,
+                "class_name": "",
+                "exam_name": "",
+                "ocr_text": text,
+                "error": error,
+            }
+        )
+    return render_template(
+        "review_image.html",
+        image_items=image_items,
+    )
 
 
 def student_chart_svg(
