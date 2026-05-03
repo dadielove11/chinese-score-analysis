@@ -1,12 +1,23 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from io import BytesIO
 from html import escape
+import math
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
 from .models import ScoreLine, ScoreRecord
+
+
+@dataclass(frozen=True)
+class PositionedLabel:
+    series: str
+    text: str
+    x: float
+    y: float
+    box: tuple[float, float, float, float]
 
 
 def line_chart_svg(
@@ -358,10 +369,11 @@ def combined_trend_chart_svg(
 
     plot_w = width - pad_left - pad_right
     plot_h = height - pad_top - pad_bottom
-    step = plot_w / max(1, len(labels) - 1) if len(labels) > 1 else 0
+    point_inset = 34 if len(labels) > 1 else 0
+    step = (plot_w - point_inset * 2) / max(1, len(labels) - 1) if len(labels) > 1 else 0
 
     def x_for(index: int) -> float:
-        return pad_left + index * step if len(labels) > 1 else pad_left + plot_w / 2
+        return pad_left + point_inset + index * step if len(labels) > 1 else pad_left + plot_w / 2
 
     def score_y(raw: float) -> float:
         ratio = (raw - score_min) / (score_max - score_min)
@@ -373,13 +385,34 @@ def combined_trend_chart_svg(
 
     score_points = build_points(scores, x_for, score_y)
     rank_points = build_points(ranks, x_for, rank_y)
-    ref_nodes = "\n".join(
-        f"<line x1='{pad_left:.1f}' y1='{score_y(line.score):.1f}' x2='{width - pad_right:.1f}' y2='{score_y(line.score):.1f}' class='line-ref'/>"
-        f"<text x='{pad_left + 8:.1f}' y='{score_y(line.score) - 6:.1f}' class='line-ref-label'>{escape(line.label)}线 {line.score:g}</text>"
+    ref_label_boxes = [
+        svg_text_box(f"{line.label}线 {line.score:g}", pad_left + 8, score_y(line.score) - 10, "ref")
+        for line in visible_refs
+    ]
+    ref_line_nodes = "\n".join(
+        f"<line x1='{pad_left:.1f}' y1='{score_y(line.score):.1f}' x2='{width - pad_right:.1f}' "
+        f"y2='{score_y(line.score):.1f}' class='line-ref'/>"
         for line in visible_refs
     )
-    score_nodes = svg_series_nodes(score_points, "score-series", "score-point", "score-label", "{:g}", -22)
-    rank_nodes = svg_series_nodes(rank_points, "rank-series", "rank-point", "rank-label", "第{:g}名", 28)
+    ref_label_nodes = "\n".join(
+        svg_ref_label_node(line, pad_left + 8, score_y(line.score) - 10)
+        for line in visible_refs
+    )
+    score_nodes = svg_series_nodes(score_points, "score-series", "score-point")
+    rank_nodes = svg_series_nodes(rank_points, "rank-series", "rank-point")
+    value_labels = layout_combined_series_labels(
+        score_points,
+        rank_points,
+        svg_label_size,
+        pad_left,
+        width - pad_right,
+        pad_top,
+        pad_top + plot_h,
+        width,
+        occupied=ref_label_boxes,
+        line_pad=18,
+    )
+    value_label_nodes = "\n".join(svg_value_label_node(label) for label in value_labels)
     missing_nodes = "\n".join(
         f"<text x='{x_for(index):.1f}' y='{pad_top + plot_h + 22:.1f}' text-anchor='middle' class='missing-label'>缺</text>"
         for index, (score, rank) in enumerate(zip(scores, ranks))
@@ -387,13 +420,13 @@ def combined_trend_chart_svg(
     )
     axis_y = pad_top + plot_h
     if rotate_labels:
-        label_nodes = "\n".join(
+        axis_label_nodes = "\n".join(
             f"<text transform='translate({x_for(index):.1f},{axis_y + 10:.1f}) rotate(-40)' "
             f"text-anchor='end' class='axis-label'>{escape(label)}</text>"
             for index, label in enumerate(labels)
         )
     else:
-        label_nodes = "\n".join(
+        axis_label_nodes = "\n".join(
             f"<text x='{x_for(index):.1f}' y='{height - 28}' text-anchor='middle' class='axis-label'>{escape(label)}</text>"
             for index, label in enumerate(labels)
         )
@@ -413,6 +446,9 @@ def combined_trend_chart_svg(
     .axis-title {{ fill: #1f1c18; font-size: 14px; font-weight: 600; }}
     .score-label {{ fill: #9b2c1f; font-weight: 600; font-size: 15px; }}
     .rank-label {{ fill: #3e5d52; font-weight: 600; font-size: 13px; }}
+    .value-label-bg {{ fill: #fffdf8; opacity: 0.95; }}
+    .score-label-bg {{ fill: #fffdf8; stroke: #9b2c1f; stroke-width: 0.8; opacity: 0.95; }}
+    .rank-label-bg {{ fill: #fffdf8; stroke: #3e5d52; stroke-width: 0.8; opacity: 0.95; }}
     .legend-text {{ fill: #1f1c18; font-size: 13px; font-weight: 600; }}
     .missing-label {{ fill: #6e1d12; font-weight: 600; }}
     .line-ref {{ stroke: #b8aa95; stroke-width: 1; stroke-dasharray: 5 4; opacity: 0.75; }}
@@ -428,11 +464,13 @@ def combined_trend_chart_svg(
   <text x="{width - pad_right - 156}" y="33" class="legend-text">成绩</text>
   <line x1="{width - pad_right - 94}" y1="28" x2="{width - pad_right - 64}" y2="28" class="rank-series rank-legend-line"/>
   <text x="{width - pad_right - 54}" y="33" class="legend-text">位次</text>
-  {ref_nodes}
+  {ref_line_nodes}
   {score_nodes}
   {rank_nodes}
+  {ref_label_nodes}
+  {value_label_nodes}
   {missing_nodes}
-  {label_nodes}
+  {axis_label_nodes}
 </svg>
 """
 
@@ -486,7 +524,8 @@ def combined_trend_chart_png(
 
     plot_w = width - pad_left - pad_right
     plot_h = height - pad_top - pad_bottom
-    step = plot_w / max(1, len(labels) - 1) if len(labels) > 1 else 0
+    point_inset = 34 if len(labels) > 1 else 0
+    step = (plot_w - point_inset * 2) / max(1, len(labels) - 1) if len(labels) > 1 else 0
 
     image = Image.new("RGB", (width * scale, height * scale), "#fffdf8")
     draw = ImageDraw.Draw(image)
@@ -499,7 +538,7 @@ def combined_trend_chart_png(
         return int(round(raw * scale))
 
     def x_for(index: int) -> float:
-        return pad_left + index * step if len(labels) > 1 else pad_left + plot_w / 2
+        return pad_left + point_inset + index * step if len(labels) > 1 else pad_left + plot_w / 2
 
     def score_y(raw: float) -> float:
         ratio = (raw - score_min) / (score_max - score_min)
@@ -530,7 +569,6 @@ def combined_trend_chart_png(
     for line in visible_refs:
         y = score_y(line.score)
         draw_dashed_line(draw, (sx(pad_left), sy(y)), (sx(width - pad_right), sy(y)), axis_color, scale)
-        draw.text((sx(pad_left + 8), sy(y - 18)), f"{line.label}线 {line.score:g}", fill="#8b806f", font=fonts["small"])
 
     score_points = build_points(scores, x_for, score_y)
     rank_points = build_points(ranks, x_for, rank_y)
@@ -542,13 +580,34 @@ def combined_trend_chart_png(
             continue
         x, y, raw = point
         draw.ellipse((sx(x - 5), sy(y - 5), sx(x + 5), sy(y + 5)), fill=score_color, outline="#fffdf8", width=scale)
-        draw_centered_text(draw, f"{raw:g}", x, y - 34, fonts["label"], score_color, scale)
     for point in rank_points:
         if point is None:
             continue
         x, y, raw = point
         draw.ellipse((sx(x - 5), sy(y - 5), sx(x + 5), sy(y + 5)), fill=rank_color, outline="#fffdf8", width=scale)
-        draw_centered_text(draw, f"第{raw:g}名", x, y + 32, fonts["small"], rank_color, scale)
+
+    for line in visible_refs:
+        y = score_y(line.score)
+        draw_left_label(draw, f"{line.label}线 {line.score:g}", pad_left + 8, y - 10, fonts["small"], "#8b806f", scale)
+
+    draw_png_series_labels(
+        draw,
+        score_points,
+        rank_points,
+        fonts,
+        scale,
+        width,
+        pad_top,
+        pad_left,
+        width - pad_right,
+        pad_top + plot_h,
+        score_color,
+        rank_color,
+        occupied=[
+            left_text_box(draw, f"{line.label}线 {line.score:g}", pad_left + 8, score_y(line.score) - 10, fonts["small"], scale)
+            for line in visible_refs
+        ],
+    )
 
     axis_y = pad_top + plot_h
     for index, (score, rank) in enumerate(zip(scores, ranks)):
@@ -640,9 +699,6 @@ def svg_series_nodes(
     points: list[tuple[float, float, float] | None],
     line_class: str,
     point_class: str,
-    label_class: str,
-    label_format: str,
-    label_offset: float,
 ) -> str:
     segments: list[list[tuple[float, float, float]]] = []
     current: list[tuple[float, float, float]] = []
@@ -662,12 +718,48 @@ def svg_series_nodes(
     )
     point_nodes = "\n".join(
         f"<circle cx='{x:.1f}' cy='{y:.1f}' r='5' class='{point_class}'/>"
-        f"<text x='{x:.1f}' y='{y + label_offset:.1f}' text-anchor='middle' class='{label_class}'>{label_format.format(raw)}</text>"
         for point in points
         if point is not None
-        for x, y, raw in [point]
+        for x, y, _raw in [point]
     )
     return "\n".join(part for part in (lines, point_nodes) if part)
+
+
+def svg_value_label_node(label: PositionedLabel) -> str:
+    left, top, right, bottom = label.box
+    class_name = "score-label" if label.series == "score" else "rank-label"
+    bg_class = "score-label-bg" if label.series == "score" else "rank-label-bg"
+    return (
+        f"<rect x='{left - 4:.1f}' y='{top - 3:.1f}' width='{right - left + 8:.1f}' "
+        f"height='{bottom - top + 6:.1f}' rx='3' class='{bg_class}'/>"
+        f"<text x='{label.x:.1f}' y='{label.y:.1f}' text-anchor='middle' "
+        f"dominant-baseline='middle' class='{class_name}'>{escape(label.text)}</text>"
+    )
+
+
+def svg_ref_label_node(line: ScoreLine, x: float, y: float) -> str:
+    text = f"{line.label}线 {line.score:g}"
+    box = svg_text_box(text, x, y, "ref")
+    left, top, right, bottom = box
+    return (
+        f"<rect x='{left - 4:.1f}' y='{top - 3:.1f}' width='{right - left + 8:.1f}' "
+        f"height='{bottom - top + 6:.1f}' rx='3' class='value-label-bg'/>"
+        f"<text x='{x:.1f}' y='{y:.1f}' class='line-ref-label'>{escape(text)}</text>"
+    )
+
+
+def svg_label_size(text: str, series: str) -> tuple[float, float]:
+    if series == "ref":
+        size = 12
+    else:
+        size = 15 if series == "score" else 13
+    width = sum(size if ord(char) > 127 else size * 0.58 for char in text)
+    return (width + 10, size + 8)
+
+
+def svg_text_box(text: str, x: float, y: float, series: str) -> tuple[float, float, float, float]:
+    width, height = svg_label_size(text, series)
+    return (x, y - height, x + width, y)
 
 
 def draw_polyline(draw: ImageDraw.ImageDraw, points: list[tuple[float, float]], color: str, scale: int) -> None:
@@ -719,11 +811,439 @@ def draw_centered_text(
     font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
     color: str,
     scale: int,
-) -> None:
+) -> tuple[float, float, float, float]:
     bbox = draw.textbbox((0, 0), text, font=font)
     width = bbox[2] - bbox[0]
     height = bbox[3] - bbox[1]
     draw.text((int(round(x * scale - width / 2)), int(round(y * scale - height / 2))), text, fill=color, font=font)
+    return centered_text_box(draw, text, x, y, font, scale)
+
+
+def draw_centered_label(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    x: float,
+    y: float,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    color: str,
+    scale: int,
+) -> tuple[float, float, float, float]:
+    box = centered_text_box(draw, text, x, y, font, scale)
+    pad_x = 4
+    pad_y = 3
+    draw.rounded_rectangle(
+        (
+            int(round((box[0] - pad_x) * scale)),
+            int(round((box[1] - pad_y) * scale)),
+            int(round((box[2] + pad_x) * scale)),
+            int(round((box[3] + pad_y) * scale)),
+        ),
+        radius=3 * scale,
+        fill="#fffdf8",
+        outline=color,
+        width=max(1, scale),
+    )
+    return draw_centered_text(draw, text, x, y, font, color, scale)
+
+
+def draw_left_label(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    x: float,
+    y: float,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    color: str,
+    scale: int,
+) -> tuple[float, float, float, float]:
+    box = left_text_box(draw, text, x, y, font, scale)
+    pad_x = 4
+    pad_y = 3
+    draw.rounded_rectangle(
+        (
+            int(round((box[0] - pad_x) * scale)),
+            int(round((box[1] - pad_y) * scale)),
+            int(round((box[2] + pad_x) * scale)),
+            int(round((box[3] + pad_y) * scale)),
+        ),
+        radius=3 * scale,
+        fill="#fffdf8",
+    )
+    draw.text((int(round(x * scale)), int(round((y - (box[3] - box[1]) / 2) * scale))), text, fill=color, font=font)
+    return box
+
+
+def draw_png_series_labels(
+    draw: ImageDraw.ImageDraw,
+    score_points: list[tuple[float, float, float] | None],
+    rank_points: list[tuple[float, float, float] | None],
+    fonts: dict[str, ImageFont.FreeTypeFont | ImageFont.ImageFont],
+    scale: int,
+    width: int,
+    plot_top: float,
+    plot_left: float,
+    plot_right: float,
+    plot_bottom: float,
+    score_color: str,
+    rank_color: str,
+    occupied: list[tuple[float, float, float, float]] | None = None,
+) -> None:
+    labels = layout_combined_series_labels(
+        score_points,
+        rank_points,
+        lambda text, series: text_size_units(draw, text, fonts["label" if series == "score" else "small"], scale),
+        plot_left,
+        plot_right,
+        plot_top,
+        plot_bottom,
+        width,
+        occupied=occupied,
+        line_pad=16,
+    )
+    for label in labels:
+        font = fonts["label"] if label.series == "score" else fonts["small"]
+        color = score_color if label.series == "score" else rank_color
+        draw_centered_label(draw, label.text, label.x, label.y, font, color, scale)
+
+
+def layout_combined_series_labels(
+    score_points: list[tuple[float, float, float] | None],
+    rank_points: list[tuple[float, float, float] | None],
+    measure_text,
+    plot_left: float,
+    plot_right: float,
+    plot_top: float,
+    plot_bottom: float,
+    width: int,
+    occupied: list[tuple[float, float, float, float]] | None = None,
+    line_pad: float = 7,
+) -> list[PositionedLabel]:
+    occupied_boxes = list(occupied or [])
+    score_segments = point_line_segments(score_points)
+    rank_segments = point_line_segments(rank_points)
+    for point in [*score_points, *rank_points]:
+        if point is None:
+            continue
+        x, y, _raw = point
+        occupied_boxes.append((x - 18, y - 18, x + 18, y + 18))
+
+    labels: list[PositionedLabel] = []
+    count = max(len(score_points), len(rank_points))
+    for index in range(count):
+        score_point = score_points[index] if index < len(score_points) else None
+        rank_point = rank_points[index] if index < len(rank_points) else None
+
+        if score_point is not None:
+            x, y, raw = score_point
+            text = f"{raw:g}"
+            side = side_label_offset(x, width, plot_right)
+            if rank_point is not None and rank_point[1] < y:
+                candidates = [
+                    (x, y + 30),
+                    (x, y + 46),
+                    (x + side, y + 24),
+                    (x - side, y + 24),
+                    (x + side, y + 42),
+                    (x - side, y + 42),
+                    (x + side * 1.6, y),
+                    (x - side * 1.6, y),
+                    (x, y - 30),
+                ]
+            else:
+                candidates = [
+                    (x, y - 26),
+                    (x, y - 42),
+                    (x, y - 58),
+                    (x + side, y - 16),
+                    (x - side, y - 16),
+                    (x + side, y - 34),
+                    (x - side, y - 34),
+                    (x + side, y - 52),
+                    (x - side, y - 52),
+                    (x, y + 30),
+                    (x + side * 1.6, y),
+                    (x - side * 1.6, y),
+                ]
+            label = place_series_label(
+                "score",
+                text,
+                candidates,
+                measure_text,
+                occupied_boxes,
+                rank_segments,
+                line_pad,
+                plot_left,
+                plot_right,
+                plot_top,
+                plot_bottom,
+            )
+            labels.append(label)
+            occupied_boxes.append(label.box)
+
+        if rank_point is not None:
+            x, y, raw = rank_point
+            text = f"第{raw:g}名"
+            side = side_label_offset(x, width, plot_right)
+            if score_point is not None and score_point[1] > y:
+                candidates = [
+                    (x, y - 28),
+                    (x, y - 44),
+                    (x + side, y - 18),
+                    (x - side, y - 18),
+                    (x + side, y - 36),
+                    (x - side, y - 36),
+                    (x + side * 1.6, y),
+                    (x - side * 1.6, y),
+                    (x, y + 28),
+                ]
+            else:
+                candidates = [
+                    (x, y + 24),
+                    (x, y + 42),
+                    (x, y + 58),
+                    (x + side, y + 16),
+                    (x - side, y + 16),
+                    (x + side, y + 34),
+                    (x - side, y + 34),
+                    (x + side, y + 52),
+                    (x - side, y + 52),
+                    (x, y - 28),
+                    (x + side * 1.6, y),
+                    (x - side * 1.6, y),
+                ]
+            label = place_series_label(
+                "rank",
+                text,
+                candidates,
+                measure_text,
+                occupied_boxes,
+                score_segments,
+                line_pad,
+                plot_left,
+                plot_right,
+                plot_top,
+                plot_bottom,
+            )
+            labels.append(label)
+            occupied_boxes.append(label.box)
+    return labels
+
+
+def side_label_offset(x: float, width: int, plot_right: float) -> float:
+    if x > min(width - 88, plot_right - 42):
+        return -46
+    return 46
+
+
+def place_series_label(
+    series: str,
+    text: str,
+    candidates: list[tuple[float, float]],
+    measure_text,
+    occupied: list[tuple[float, float, float, float]],
+    line_segments: list[tuple[float, float, float, float]],
+    line_pad: float,
+    min_x: float,
+    max_x: float,
+    min_y: float,
+    max_y: float,
+) -> PositionedLabel:
+    fallback: tuple[int, PositionedLabel] | None = None
+    for candidate_index, (raw_x, raw_y) in enumerate(candidates):
+        label_w, label_h = measure_text(text, series)
+        x, y = clamp_label_center(raw_x, raw_y, label_w, label_h, min_x, max_x, min_y, max_y)
+        box = (x - label_w / 2, y - label_h / 2, x + label_w / 2, y + label_h / 2)
+        label = PositionedLabel(series=series, text=text, x=x, y=y, box=box)
+        overlap_count = sum(1 for other in occupied if text_boxes_overlap(box, other, pad=2))
+        line_penalty = box_line_penalty(box, line_segments, target_clearance=line_pad)
+        score = overlap_count * 1000 + line_penalty * 20 + candidate_index
+        if fallback is None or score < fallback[0]:
+            fallback = (score, label)
+        if overlap_count == 0 and line_penalty == 0:
+            return label
+    return fallback[1] if fallback is not None else PositionedLabel(series, text, min_x, min_y, (min_x, min_y, min_x, min_y))
+
+
+def clamp_label_center(
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    min_x: float,
+    max_x: float,
+    min_y: float,
+    max_y: float,
+) -> tuple[float, float]:
+    margin = 6
+    half_w = width / 2
+    half_h = height / 2
+    low_x = min_x + half_w + margin
+    high_x = max_x - half_w - margin
+    low_y = min_y + half_h + margin
+    high_y = max_y - half_h - margin
+    if low_x > high_x:
+        x = (min_x + max_x) / 2
+    else:
+        x = max(low_x, min(x, high_x))
+    if low_y > high_y:
+        y = (min_y + max_y) / 2
+    else:
+        y = max(low_y, min(y, high_y))
+    return x, y
+
+
+def centered_text_box(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    x: float,
+    y: float,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    scale: int,
+) -> tuple[float, float, float, float]:
+    width, height = text_size_units(draw, text, font, scale)
+    return (x - width / 2, y - height / 2, x + width / 2, y + height / 2)
+
+
+def left_text_box(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    x: float,
+    y: float,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    scale: int,
+) -> tuple[float, float, float, float]:
+    width, height = text_size_units(draw, text, font, scale)
+    return (x, y - height / 2, x + width, y + height / 2)
+
+
+def text_size_units(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    scale: int,
+) -> tuple[float, float]:
+    bbox = draw.textbbox((0, 0), text, font=font)
+    return ((bbox[2] - bbox[0]) / scale, (bbox[3] - bbox[1]) / scale)
+
+
+def text_boxes_overlap(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+    pad: float = 0,
+) -> bool:
+    return not (
+        first[2] + pad < second[0]
+        or second[2] + pad < first[0]
+        or first[3] + pad < second[1]
+        or second[3] + pad < first[1]
+    )
+
+
+def point_line_segments(points: list[tuple[float, float, float] | None]) -> list[tuple[float, float, float, float]]:
+    segments: list[tuple[float, float, float, float]] = []
+    previous: tuple[float, float, float] | None = None
+    for point in points:
+        if point is None:
+            previous = None
+            continue
+        if previous is not None:
+            x1, y1, _raw1 = previous
+            x2, y2, _raw2 = point
+            segments.append((x1, y1, x2, y2))
+        previous = point
+    return segments
+
+
+def box_too_close_to_segments(
+    box: tuple[float, float, float, float],
+    segments: list[tuple[float, float, float, float]],
+    pad: float,
+) -> bool:
+    left, top, right, bottom = box
+    expanded = (left - pad, top - pad, right + pad, bottom + pad)
+    return any(segment_intersects_box(segment, expanded) for segment in segments)
+
+
+def box_line_penalty(
+    box: tuple[float, float, float, float],
+    segments: list[tuple[float, float, float, float]],
+    target_clearance: float,
+) -> float:
+    penalty = 0.0
+    for segment in segments:
+        distance = segment_box_distance(segment, box)
+        if distance < target_clearance:
+            penalty += target_clearance - distance
+    return penalty
+
+
+def segment_box_distance(
+    segment: tuple[float, float, float, float],
+    box: tuple[float, float, float, float],
+) -> float:
+    if segment_intersects_box(segment, box):
+        return 0.0
+    x1, y1, x2, y2 = segment
+    left, top, right, bottom = box
+    corners = [(left, top), (right, top), (right, bottom), (left, bottom)]
+    endpoint_distances = [point_box_distance(x1, y1, box), point_box_distance(x2, y2, box)]
+    corner_distances = [point_segment_distance(corner[0], corner[1], x1, y1, x2, y2) for corner in corners]
+    return min(endpoint_distances + corner_distances)
+
+
+def point_box_distance(x: float, y: float, box: tuple[float, float, float, float]) -> float:
+    left, top, right, bottom = box
+    dx = max(left - x, 0, x - right)
+    dy = max(top - y, 0, y - bottom)
+    return math.hypot(dx, dy)
+
+
+def point_segment_distance(px: float, py: float, x1: float, y1: float, x2: float, y2: float) -> float:
+    dx = x2 - x1
+    dy = y2 - y1
+    if dx == 0 and dy == 0:
+        return math.hypot(px - x1, py - y1)
+    t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+    t = max(0.0, min(1.0, t))
+    nearest_x = x1 + t * dx
+    nearest_y = y1 + t * dy
+    return math.hypot(px - nearest_x, py - nearest_y)
+
+
+def segment_intersects_box(
+    segment: tuple[float, float, float, float],
+    box: tuple[float, float, float, float],
+) -> bool:
+    x1, y1, x2, y2 = segment
+    left, top, right, bottom = box
+    if point_in_box(x1, y1, box) or point_in_box(x2, y2, box):
+        return True
+    return (
+        segments_intersect((x1, y1), (x2, y2), (left, top), (right, top))
+        or segments_intersect((x1, y1), (x2, y2), (right, top), (right, bottom))
+        or segments_intersect((x1, y1), (x2, y2), (right, bottom), (left, bottom))
+        or segments_intersect((x1, y1), (x2, y2), (left, bottom), (left, top))
+    )
+
+
+def point_in_box(x: float, y: float, box: tuple[float, float, float, float]) -> bool:
+    left, top, right, bottom = box
+    return left <= x <= right and top <= y <= bottom
+
+
+def segments_intersect(
+    a1: tuple[float, float],
+    a2: tuple[float, float],
+    b1: tuple[float, float],
+    b2: tuple[float, float],
+) -> bool:
+    def orientation(p: tuple[float, float], q: tuple[float, float], r: tuple[float, float]) -> float:
+        return (q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1])
+
+    o1 = orientation(a1, a2, b1)
+    o2 = orientation(a1, a2, b2)
+    o3 = orientation(b1, b2, a1)
+    o4 = orientation(b1, b2, a2)
+    return (o1 > 0) != (o2 > 0) and (o3 > 0) != (o4 > 0)
 
 
 def draw_rotated_centered_text(

@@ -32,6 +32,9 @@ python -m compileall app.py student_analysis tests
 - `/import/excel` 和 `/import/image` 保留为兼容路由，内部仍复用统一导入后的预览/校对逻辑。
 - Excel 模板下载路由是 `/template.xlsx`。
 - Excel 和图片导入都必须先进入确认/校对页，不能直接写入成绩数据。
+- 首页个人趋势图是合并的成绩/位次 SVG 图。标签布局会避开折线点、分数线和对方折线，并用红/绿同色边框区分分数与位次。
+- 单个学生“保存趋势大图 PNG”由浏览器端把当前页面 SVG 转成 PNG，目的是保证下载图与页面预览一致；`/export/student-chart.png` 仍保留为浏览器导出失败时的后端回退路由。
+- “下载全班趋势图”仍走后端批量 PNG 生成并打包 zip，不依赖浏览器逐张截图。
 - 删除记录和清空全部数据均有 `confirm()` 二次确认，**不要绕过**。
 - 考试顺序通过 ↑↓ 按钮调整（JS 重排 hidden input），后端接收 `order_<exam_name>` 字段。
 - 成绩、分数线和考试顺序保存在本地 `data/`。
